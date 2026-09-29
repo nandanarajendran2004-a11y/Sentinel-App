@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../core/constants.dart';
 import '../../core/theme.dart';
 import '../providers/employee_home_provider.dart';
 
 /// QR code scanner screen for employee check-in/check-out.
 ///
-/// Opens the camera, scans the kiosk's rotating QR code, and submits
-/// it to the appropriate check-in or check-out endpoint.
+/// Opens the camera, scans the kiosk's rotating QR code, captures
+/// a fresh high-accuracy GPS fix, and submits it to the backend.
 class ScannerScreen extends StatefulWidget {
   const ScannerScreen({super.key});
 
@@ -29,12 +31,90 @@ class _ScannerScreenState extends State<ScannerScreen> {
       detectionSpeed: DetectionSpeed.normal,
       facing: CameraFacing.back,
     );
+    _checkInitialLocationPermission();
   }
 
   @override
   void dispose() {
     _scannerController?.dispose();
     super.dispose();
+  }
+
+  /// Request foreground location permission upon entering the scanner screen.
+  Future<void> _checkInitialLocationPermission() async {
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied && mounted) {
+          _showResult(
+            message: AppConstants.locationPermissionDenied,
+            success: false,
+          );
+        } else if (permission == LocationPermission.deniedForever && mounted) {
+          _showResult(
+            message: AppConstants.locationPermissionPermanentlyDenied,
+            success: false,
+          );
+        }
+      } else if (permission == LocationPermission.deniedForever && mounted) {
+        _showResult(
+          message: AppConstants.locationPermissionPermanentlyDenied,
+          success: false,
+        );
+      }
+    } catch (e) {
+      debugPrint('[Sentinel] Initial location permission check error: $e');
+    }
+  }
+
+  /// Verifies location services and permissions, returning a fresh high-accuracy position.
+  Future<Position?> _determinePosition() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      _showResult(
+        message: AppConstants.locationServiceDisabled,
+        success: false,
+      );
+      return null;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        _showResult(
+          message: AppConstants.locationPermissionDenied,
+          success: false,
+        );
+        return null;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      _showResult(
+        message: AppConstants.locationPermissionPermanentlyDenied,
+        success: false,
+      );
+      return null;
+    }
+
+    try {
+      // Fresh high-accuracy location fix (not cached/stale)
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[Sentinel] GPS location fix error: $e');
+      _showResult(
+        message: AppConstants.gpsSignalWeak,
+        success: false,
+      );
+      return null;
+    }
   }
 
   Future<void> _onDetect(BarcodeCapture capture) async {
@@ -48,46 +128,163 @@ class _ScannerScreenState extends State<ScannerScreen> {
     final provider = context.read<EmployeeHomeProvider>();
     final att = provider.attendance;
 
-    bool success;
-    if (att == null || att.isNotCheckedIn) {
-      success = await provider.checkIn(qrCode);
-    } else if (att.isCheckedIn) {
-      success = await provider.checkOut(qrCode);
-    } else {
-      setState(() {
-        _resultMessage = 'You have already checked out for today.';
-        _resultSuccess = false;
-        _isProcessing = false;
-      });
+    if (att != null && att.isCheckedOut) {
+      _showResult(
+        message: 'You have already checked out for today.',
+        success: false,
+      );
       return;
+    }
+
+    // Acquire fresh high-accuracy position before submitting
+    final position = await _determinePosition();
+    if (position == null) {
+      // Error banner already triggered by _determinePosition
+      return;
+    }
+
+    final bool isCheckIn = (att == null || att.isNotCheckedIn);
+
+    bool success = await _executeAttendanceCall(
+      provider: provider,
+      isCheckIn: isCheckIn,
+      qrCode: qrCode,
+      position: position,
+    );
+
+    // If backend returns 400 MOCK_LOCATION_FLAG_REQUIRED: client bug, log and retry once
+    if (!success) {
+      final statusCode = provider.lastStatusCode;
+      final errorData = provider.lastErrorData;
+      final errorCode = errorData?['error']?.toString();
+
+      if (statusCode == 400 && errorCode == 'MOCK_LOCATION_FLAG_REQUIRED') {
+        debugPrint(
+          '[Sentinel] Client bug: 400 MOCK_LOCATION_FLAG_REQUIRED returned by backend. '
+          'Retrying location fetch and resubmitting once automatically...',
+        );
+        try {
+          final freshPosition = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              timeLimit: Duration(seconds: 10),
+            ),
+          );
+          success = await _executeAttendanceCall(
+            provider: provider,
+            isCheckIn: isCheckIn,
+            qrCode: qrCode,
+            position: freshPosition,
+          );
+        } catch (e) {
+          debugPrint('[Sentinel] Retry location fetch failed: $e');
+        }
+      }
     }
 
     if (!mounted) return;
 
-    setState(() {
-      if (success) {
-        final newAtt = provider.attendance;
-        if (newAtt?.isCheckedOut == true) {
-          _resultMessage = 'Check-out successful!';
-        } else {
-          _resultMessage = 'Check-in successful!';
-        }
-        _resultSuccess = true;
+    if (success) {
+      final newAtt = provider.attendance;
+      if (newAtt?.isCheckedOut == true || !isCheckIn) {
+        _showResult(
+          message: 'Check-out successful!',
+          success: true,
+        );
       } else {
-        _resultMessage = provider.error ?? 'QR verification failed';
-        _resultSuccess = false;
+        _showResult(
+          message: 'Check-in successful!',
+          success: true,
+        );
       }
+    } else {
+      _showResult(
+        message: _mapErrorMessage(provider),
+        success: false,
+      );
+    }
+  }
+
+  Future<bool> _executeAttendanceCall({
+    required EmployeeHomeProvider provider,
+    required bool isCheckIn,
+    required String qrCode,
+    required Position position,
+  }) async {
+    if (isCheckIn) {
+      return await provider.checkIn(
+        qrCode,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy_m: position.accuracy,
+        is_mock_location: position.isMocked,
+      );
+    } else {
+      return await provider.checkOut(
+        qrCode,
+        latitude: position.latitude,
+        longitude: position.longitude,
+        accuracy_m: position.accuracy,
+        is_mock_location: position.isMocked,
+      );
+    }
+  }
+
+  /// Maps API and geofencing responses to clear in-screen error banners.
+  String _mapErrorMessage(EmployeeHomeProvider provider) {
+    final statusCode = provider.lastStatusCode;
+    final errorData = provider.lastErrorData;
+    final errorCode = errorData?['error']?.toString();
+
+    // 403 OUTSIDE_GEOFENCE -> show the distance versus the allowed radius from the response body
+    if (statusCode == 403 && errorCode == 'OUTSIDE_GEOFENCE') {
+      final distance = errorData?['distance_m'];
+      final radius = errorData?['allowed_radius_m'];
+      if (distance != null && radius != null) {
+        return 'Outside geofence: ${distance}m from office (allowed: ${radius}m)';
+      }
+      return 'Outside allowed geofence boundary';
+    }
+
+    // 403 MOCK_LOCATION -> "Mock location detected - please disable it and try again"
+    if (statusCode == 403 && errorCode == 'MOCK_LOCATION') {
+      return 'Mock location detected - please disable it and try again';
+    }
+
+    // 422 -> "GPS signal too weak, move to open sky and retry"
+    if (statusCode == 422 || errorCode == 'ACCURACY_TOO_LOW') {
+      return 'GPS signal too weak, move to open sky and retry';
+    }
+
+    // 400 LOCATION_REQUIRED -> "Location is required, please enable GPS"
+    if (statusCode == 400 && errorCode == 'LOCATION_REQUIRED') {
+      return 'Location is required, please enable GPS';
+    }
+
+    // 400 MOCK_LOCATION_FLAG_REQUIRED fallback if retry also failed
+    if (statusCode == 400 && errorCode == 'MOCK_LOCATION_FLAG_REQUIRED') {
+      return 'Location verification failed. Please try again.';
+    }
+
+    return provider.error ?? 'QR verification failed';
+  }
+
+  void _showResult({required String message, required bool success}) {
+    if (!mounted) return;
+    setState(() {
+      _resultMessage = message;
+      _resultSuccess = success;
     });
 
-    // Auto-reset after showing the result
-    await Future.delayed(const Duration(seconds: 3));
-    if (mounted) {
-      setState(() {
-        _isProcessing = false;
-        _resultMessage = null;
-        _resultSuccess = null;
-      });
-    }
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _resultMessage = null;
+          _resultSuccess = null;
+        });
+      }
+    });
   }
 
   @override

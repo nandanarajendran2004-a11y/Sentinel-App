@@ -38,10 +38,7 @@ for which files to attach alongside this one.
 - **Two separate client applications:**
   - **Web app** — used ONLY by Managers and Administrators. Built with React.js (or 
     plain wired-up HTML/Tailwind templates), Node.js + Express.js backend.
-  - **Mobile app** — used ONLY by Employees. ~~A completely separate codebase/repository 
-    (Flutter-based, per an old test folder we found and removed — see Section 5).~~ 
-    **SUPERSEDED — see Section 9: mobile app now lives in a `mobile` branch inside this 
-    same repo, not a separate one.**
+  - **Mobile app** — used ONLY by Employees. A completely separate codebase/repository (Flutter-based). **(Re-confirmed: the mobile app is being built in a separate repo).**
 - **Shared database:** MongoDB Atlas (cloud-hosted, free tier), ONE shared instance — 
   not local per-developer databases. Everyone's `.env` MONGO_URI points at the same 
   connection string.
@@ -86,8 +83,8 @@ same as it already does for QR signature/expiry — a phone can't be trusted to 
   `verifyQrSignatureAndExpiry`, `verifyNoDuplicateScan`) run in sequence, rather than one 
   large function — so that adding `verifyFaceMatch` and `verifyGeofence` later is just 
   adding two more functions to the array, not a rewrite.
-- **Nobody has built face auth or geofencing yet.** This is intentionally deferred to a 
-  future phase. Do not start building it unless explicitly asked.
+- **Geofencing is now built (see Section 17).** Face auth is still deferred to a future 
+  phase; do not start building it unless explicitly asked.
 
 ---
 
@@ -235,7 +232,7 @@ recomputes both on any timestamp write.
 
 ---
 
-## 7. Merge Plan (about to be executed — this is the current/next phase)
+## 7. Merge Plan (COMPLETED 2026-09-02; originally: about to be executed — this is the current/next phase)
 
 Merge order matters because of dependencies. One branch at a time, testing after each, 
 NOT all four at once:
@@ -258,10 +255,12 @@ leave → dashboard reflects it all — before considering the integration done.
 - ✅ Aivin → main merged (QR & Attendance)
 - ✅ Nandana → main merged (Leave Management & Balance)
 - ✅ Amina → main merged (Admin Dashboard & Security Reports)
+- ✅ Post-Merge Fix: Frontend-to-API wiring completed (all 6 templates now properly fetch from the live API, handle 401s, and send Auth tokens).
+- ✅ Post-Merge Fix: Added root redirect (`/` -> `/Templates/Login_Page.html`) for easier access.
 
 **ALL 4 WEB APPLICATION MODULES ARE 100% INTEGRATED & VERIFIED ON `main`.**
 
-See `MERGE_PROGRESS.md` at the repo root for exact timestamps and commit hashes of completed merges.
+See `MERGE_PROGRESS.md` at the repo root for exact timestamps, commit hashes, and detailed logs of these fixes (Entry 7 covers the frontend API wiring).
 
 ---
 
@@ -282,37 +281,20 @@ See `MERGE_PROGRESS.md` at the repo root for exact timestamps and commit hashes 
 
 ---
 
-## 9. Mobile App — Architecture Change + v1 Scope (NEW, this session)
+## 9. Mobile App — Current Status (Updated)
 
-**Architecture decision CHANGED — flagging explicitly since Section 2 above said the 
-opposite and that was previously "confirmed, don't re-litigate":**
-- OLD decision (Section 2, now superseded for the mobile app's location only): mobile 
-  app is a completely separate repository, not part of Sentinel-Attendance.
-- NEW decision (this session): mobile app lives in a `mobile` branch **inside** the 
-  Sentinel-Attendance repo, under a `/mobile` folder at the repo root. Everything else 
-  from Section 2 still holds — Flutter, employees-only, calls the same Express REST API, 
-  never writes to MongoDB directly.
-- Reason for the change: not stated by the team, just a direct instruction to switch to 
-  a branch-based approach. If this causes friction later (e.g. mixing a Flutter project 
-  and a Node project in one repo's tooling/CI), that trade-off wasn't discussed — worth 
-  revisiting if it becomes a problem.
+**Architecture decision:**
+- The mobile app is being built in a **completely separate repository** (Flutter-based). It does not live in this backend repository. Everything else from Section 2 still holds — Flutter, employees-only, calls the same Express REST API, never writes to MongoDB directly.
 
-**v1 scope decision (this session):** the mobile app's first build is intentionally 
-narrow — login + QR scan to check in/check out, nothing else. This differs from what was 
-implied during the leave-module build: Nandana's `POST /api/leave` (Module 4, Leave 
-Management — see the ownership correction directly below) was originally commented as 
-"called by the mobile app." That mobile-submission use case is deferred to a v2, not 
-built in v1. The backend endpoint already exists and is unaffected — only the mobile 
-client doesn't call it yet.
+**Current Implementation Status:**
+- ✅ **Login:** Implemented and working.
+- ✅ **Leave Requests:** Implemented and working (mobile can now successfully request leave).
+- ❌ **Attendance Checking (QR Scan):** Not yet implemented.
+- ❌ **Geolocation Sharing:** Not yet implemented.
+- ❌ **Face Authentication:** Not yet implemented.
 
-**Mobile app v1 build plan:** see Prompt B in `EAMS_Antigravity_Prompts_v4_Merge_and_
-Mobile.md` — Flutter, `dio` for networking, `flutter_secure_storage` for the JWT, 
-`mobile_scanner` for QR capture. Three screens: login, home (today's status + 
-check-in/out button), scanner. Branch created off `main` (assumes `main` is fully merged 
-and tested first — see Section 7 merge order).
-
-**Status:** branch/prompt written, not yet executed as of this handoff. **SUPERSEDED —
-see Section 12: mobile app location changed again, and scope now includes Managers.**
+**Next Steps for Mobile:**
+The immediate priority for the mobile app is implementing the Attendance Checking flow (QR scanning) and Geolocation sharing to interact with the already-completed backend API (`POST /api/attendance/checkin` and `checkout`). Face authentication can be tackled either alongside this or as a follow-up enhancement.
 
 ---
 
@@ -385,7 +367,7 @@ inference from documents), as of this session:
   - Minor cosmetic issue: the route-mount comment in her `server.js` still says 
     `// Melbin` (leftover from the pre-correction module-ownership mixup) even though 
     the route is hers and working — harmless, but worth a one-line fix during merge.
-**Bottom line, updated:** Aivin, Amina, and Nandana are ready to merge as-is. Melbin's 
+**Bottom line (HISTORICAL, now COMPLETED - see Section 14):** Aivin, Amina, and Nandana are ready to merge as-is. Melbin's 
 restructure is functionally done and verified, just needs the leftover-file cleanup — 
 which is now built into the start of Prompt A. **All four branches are effectively ready 
 — running Prompt A (which starts with the Melbin cleanup) is the next and only remaining 
@@ -393,7 +375,23 @@ step before `main` is fully integrated.**
 
 ---
 
-## 11. What to Upload in the New Chat
+## 12. Post-Merge Frontend Polish & Testing Mode (Completed)
+
+- **Navbar / Sidebar Consistency (Reference: Admin Dashboard):**
+  - Standardized `.nav-item` inactive link colors to `#475569` (dark slate / near black) across all templates instead of relying on `text-secondary` (which previously evaluated to `#0051d5` blue on Material Design 3 templates).
+  - Maintained `.nav-item.active` indigo styling (`#4f46e5` with `#eef2ff` background and 4px accent border).
+  - Injected Font Awesome CDN into `Templates/shared/styles.css` so that the Sentinel Admin badge icon and the "+ Generate QR" button icons display consistently across all pages.
+- **Attendance Page & QR Page Layout Fix:**
+  - Removed duplicate `ml-64` / `md:ml-64` on `<main>` in `Daily_Attendnace_Tracking_Page.html` and `QR_Generation_Page.html`, eliminating the oversized 256px white gap between the sidebar border and the main content viewport.
+- **Testing Mode for 2FA / Authenticator App:**
+  - Added `DISABLE_TOTP=true` support in `.env` and `modules/auth/controller.js`.
+  - When enabled or when testing, login returns the complete JWT directly without requiring OTP code setup/verification.
+  - Added a "Skip Authenticator (Testing Mode)" button in `Templates/Login_Page.html` and accepted bypass code `000000` for seamless local testing.
+  - Added automatic in-memory MongoDB fallback in `shared/config/db.js` if MongoDB Atlas cluster IP whitelist blocks connection during local development.
+
+---
+
+## 13. What to Upload in the New Chat
 
 To get full context without re-explaining anything, upload these files alongside this 
 memory document:
@@ -428,51 +426,177 @@ file). [describe whatever error or question you actually have]."
 
 ---
 
-## 12. Mobile App — Repo Location Changed AGAIN + Manager Access Added (this session)
+## 14. Post-Merge Reconciliation (added 2026-09-28) - source of truth is MERGE_PROGRESS.md
 
-**Two decisions changed this session, both superseding Section 9:**
+Facts from `MERGE_PROGRESS.md` that older sections and the per-person status files
+(`STATUS_REPORT_AIVIN.md`, `PROGRESS_AIVIN.md`) do NOT reflect. Those two Aivin files are
+OUTDATED (written 31 Aug, before merging): they say auth is a stub, end-to-end tests are
+blocked, and PR #1 is open. All of that is resolved.
 
-1. **Location decision changed a second time.** Section 9 said the mobile app would
-   live in a `mobile` branch inside the `Sentinel-Attendance` repo, under a `/mobile`
-   folder. That is now superseded — the mobile app has its **own separate repository**:
-   `https://github.com/nandanarajendran2004-a11y/Sentinel-App` (owned by Nandana).
-   Confirmed by fetching the repo directly: as of this session it contains only a
-   `.gitignore` and one commit — i.e. it's freshly created and empty, ready for the
-   Flutter project to be initialized at its root. This is effectively a return to the
-   *original* Section 2 architecture (separate repo), just now with a real repo URL
-   attached to it instead of "a separate repo" as a placeholder concept.
-   - Reason for the change: not stated by the team, just a direct instruction again —
-     same as the last location flip in Section 9. Two location changes in two sessions
-     with no stated rationale either time; worth asking the team directly if this is
-     settled now, since a third flip would start costing real rework.
-2. **Scope widened: the mobile app is no longer employee-only.** Section 9's v1 scope
-   was "login + QR scan to check in/out, nothing else," for Employees only (Section 6:
-   "Web app has NO employee-facing screens at all — employees only exist on mobile").
-   That employee-only framing is now superseded for the *mobile app's audience* — the
-   mobile app must support **both Employee and Manager** logins and role-based
-   navigation. (Section 6's underlying rule — Administrator is a web-only actor — is
-   unaffected; only Manager is being added to mobile.)
-   - **Employee shell:** Home (status + check-in/out), QR Scanner, Leave (view/apply),
-     Profile. This matches the original v1 scope, unchanged.
-   - **Manager shell (NEW):** Home (team summary for today), Team Attendance (read-only,
-     department-scoped), Leave Approvals (master-detail, calls the existing
-     department-scoped approval endpoint — no new backend logic needed, per Section 6's
-     existing rule that Managers can only approve within their own department), Profile.
-   - **TOTP carries over to mobile for Managers**, same mandatory-on-first-login rule as
-     the web app (Section 6). Employees still skip TOTP entirely, same as before.
-   - Admin accounts logging into mobile should be shown a message to use the web app
-     instead — mobile is Employee + Manager only, not Admin.
-   - Open question, not yet answered: whether a Manager who is also an Employee record
-     (e.g. has their own attendance to log) should see the Employee check-in/out flow
-     too, or whether Managers are purely oversight-only on mobile. Flagged in the build
-     prompt as "check before building" rather than guessed at.
+- **Merges done locally with --no-ff on 2026-09-02** in order Melbin, Aivin, Nandana, Amina.
+  Aivin's PR #1 may be stale/open on GitHub - check and close it.
+- **DB architecture conflict (Entry 3):** Melbin's auth/employees modules were built on
+  SQLite, not MongoDB. They were rewritten to Mongoose. `shared/config/db.js` now uses
+  Mongoose with automatic fallback to `mongodb-memory-server`. `employee_id` was added to the
+  JWT payload (needed by the check-in route).
+- **Nandana's dev auth bypass REMOVED (Entry 4):** `modules/leave/authHelpers.js` now wraps the
+  live JWT middleware (normalises `req.user.id` to `_id`, adds `employee_id`, `department_id`).
+  Her extra `LeaveBalance` model + `GET /api/leave/balance` was kept.
+- **Dashboard/reports guarded (Entry 5):** `requireAuth` then `requireRole('admin')`;
+  `roles.flat()` and case normalisation added to the role middleware.
+- **E2E suite (Entry 6):** `tests/test_e2e.js`, 25/25 passing. TOTP verify bug fixed.
+- **Frontend wiring (Entry 7, 2026-09-08):** all templates use the `authHeaders()` pattern
+  (Bearer token from localStorage, redirect to login on 401).
+- **Frontend stack clarification:** vanilla HTML + Tailwind CDN, NOT React.
+- **QR timing:** rotation ~5s, expiry 10s, HMAC-SHA256 signed via `QR_SIGNING_SECRET`.
+- **Attendance `verification_method` enum in code:** `qr_only` / `qr_geo` / `qr_geo_face`
+  (Section 3 names only `qr_only` and `qr_geo_face`; the code's three values are correct).
+- **Env vars:** `MONGO_URI`, `JWT_SECRET`, `QR_SIGNING_SECRET` (required),
+  `CHECK_IN_CUTOFF` (default 09:00), `STANDARD_WORK_HOURS` (default 8), `DISABLE_TOTP`
+  (testing only). Make sure `.env.example` lists them.
+- **Module ownership reminder:** Melbin = Module 1 (auth + employees), Nandana = Module 4
+  (leave). Aivin's status report wrongly says Nandana owns auth.
 
-**Current build prompt:** a new prompt was written this session —
-`EAMS_Antigravity_Prompt_Mobile_Employee_Manager.md` — replacing Prompt B from
-`EAMS_Antigravity_Prompts_v4_Merge_and_Mobile.md` (Prompt B is now superseded; don't use
-it, it points at the wrong repo/folder and doesn't include Manager screens). Tech stack
-unchanged from Prompt B: Flutter, `dio`, `flutter_secure_storage`, `mobile_scanner`.
+### Open loose ends
+1. **SECURITY:** remove/disable `DISABLE_TOTP`, the "Skip Authenticator" button and the
+   `000000` bypass code before any demo or submission. TOTP must be enforced for admin/manager.
+2. Fix the stale `// Melbin` comment on the leave route mount in `server.js`.
+3. Close or refresh stale PR #1.
+4. Update `.env.example` with the QR/attendance variables.
 
-**Status:** prompt written and handed off for Antigravity to execute in the
-`Sentinel-App` repo. Not yet executed as of this handoff — nothing has been built there
-yet beyond the empty repo shell.
+---
+
+## 15. Status as of 2026-09-28 (superseded further by Section 17 - see that for geofencing)
+
+| Area | Status |
+|---|---|
+| Web backend (7 modules) | COMPLETE, merged on `main`, 25/25 E2E |
+| Web frontend (7 templates) | COMPLETE, wired to API |
+| Mobile: login | DONE |
+| Mobile: leave requests | DONE |
+| Mobile: QR scan check-in/out | NOT STARTED |
+| Mobile: GPS sharing | NOT STARTED |
+| Mobile: face authentication | NOT STARTED |
+| Backend: `verifyGeofence` step | NOT STARTED (pipeline slot ready in `verificationSteps.js`) |
+| Backend: `verifyFaceMatch` step | NOT STARTED |
+
+### Plan agreed at the time (now executed - see Section 17)
+Principle: the SERVER decides pass/fail; the phone never self-reports "face_verified" or
+"inside_geofence". Lock the API contract first, then parallelise backend (geofence) and
+mobile (QR scanner + GPS) as separate tracks, merging one at a time.
+
+---
+
+## 16. Suggested First Message in a New Chat
+"Continuing the Sentinel EAMS project - see the attached memory file. Section 17 is the
+latest: web backend geofencing is complete and security-reviewed. We are on the mobile
+QR/geolocation phase. Keep the memory file updated as we go."
+
+---
+
+## 17. Geofencing: Built, Fixed, and Security-Reviewed (added 2026-09-29)
+
+**Status: DONE on `main`** (developed directly on `main`, no feature branch - see
+`MERGE_PROGRESS.md` Entries 8 and 9 for the full log). This supersedes Section 15's
+backend geofence row and the "NOT STARTED" status for `verifyGeofence`.
+
+### What it discovered/actually is (differs from the original plan)
+- **Per-department geofence, not one office-wide setting.** `Department` has
+  `geofence_lat`, `geofence_lng`, `geofence_radius_m` (default 200m) - more flexible than
+  the single `OFFICE_LAT`/`OFFICE_LNG` env-var design originally sketched.
+- **A `SecurityAlert` model** (not originally planned) logs violations: `alert_type` enum
+  `geofence_violation` / `department_mismatch` / `expired_qr` / `duplicate_scan` (only the
+  first two are actually created anywhere), `severity`, `message`, `metadata` (lat/lng,
+  department_id, distance_m, qr_session_id), `status` (open/acknowledged/resolved).
+  Surfaced via alert-stats and list endpoints, and now in `GET /api/reports/organisation`.
+- **`verifyDepartmentMatch`** (separate, pre-existing check) is the blocking pattern
+  `verifyGeofence`'s enforce mode was modeled on - throws 403 + logs an alert in one step.
+
+### GEOFENCE_MODE (off / log / enforce)
+- **off:** geofence check skipped.
+- **log (default):** outside-radius check-ins still succeed; `SecurityAlert` logged.
+- **enforce:** outside-radius check-ins rejected `403 OUTSIDE_GEOFENCE`, no `Attendance`
+  record written, alert still logged. Also in enforce mode: bad `accuracy_m` -> `422`;
+  `is_mock_location: true` -> `403 MOCK_LOCATION`; missing `latitude`/`longitude` ->
+  `400 LOCATION_REQUIRED`; missing `is_mock_location` field entirely ->
+  `400 MOCK_LOCATION_FLAG_REQUIRED`.
+- Current mode is exposed read-only on `GET /api/dashboard/summary`.
+- Test-only override: `X-Geofence-Mode` / `X-Geofence-Max-Accuracy` headers work ONLY when
+  `NODE_ENV === 'test'` AND a matching `X-Test-Secret` header equals
+  `process.env.TEST_OVERRIDE_SECRET`. Must be set in any environment running
+  `tests/test_e2e.js` (local + CI) or enforce-mode tests silently run against whatever
+  `GEOFENCE_MODE` is really set.
+
+### Security review (Claude) findings, all fixed (see MERGE_PROGRESS.md Entry 9)
+1. Critical: header-override bypass reachable by any client when `NODE_ENV !== 'production'`
+   - fixed as above (test-mode + secret gated).
+2. High: omitting lat/lng silently skipped enforce mode - fixed, now `400 LOCATION_REQUIRED`.
+3. High: `is_mock_location` is a client-self-reported flag - can't be fully server-verified;
+   made required in enforce mode so it can't be omitted, but this is a heuristic, not a
+   guarantee. Real fix would be device attestation (Play Integrity / DeviceCheck) - not built.
+4. Medium: `SecurityAlert` write failures on a real violation were only `console.error`'d,
+   could vanish silently - now a structured `[ALERT_WRITE_FAILURE]` log line.
+5. Low: `latitude || null` treated valid `latitude: 0` as missing - fixed to `!= null`.
+
+### Test results
+41/41 integration tests passing, 0 skipped, after both the initial implementation (38/38)
+and the security-fix pass (41/41, three new tests added for the missing-location,
+missing-mock-flag, and header-override-with-bad-secret cases).
+
+### Not done / explicitly out of scope for this pass
+- Mock-location detection is still just a trusted client flag, not server-verified.
+- Device attestation (Play Integrity / DeviceCheck) - future work if spoofing becomes a
+  real concern.
+- Face auth (`verifyFaceMatch`) - separate future track, unstarted.
+- Mobile side (QR scanner + GPS capture calling these endpoints) - COMPLETED 2026-09-29, see Section 18.
+
+### Immediate next step (COMPLETED 2026-09-29 - see Section 18)
+Mobile QR check-in/checkout + GPS capture, in the separate Flutter repo, using the field
+names in `docs/API_CONTRACT_ATTENDANCE.md` (`latitude`, `longitude`, `accuracy_m`,
+`is_mock_location`) and handling all the new enforce-mode error codes above.
+
+## 18. Mobile App: GPS Geofence Capture & Scanner Extension (added 2026-09-29)
+
+**Status: COMPLETED** in `Sentinel-App` Flutter client repository. `flutter analyze` clean,
+`flutter test` passing (1/1) after the change.
+
+### Key Changes Implemented
+1. **Endpoint Paths (`lib/core/api_endpoints.dart`):**
+   - Corrected `ApiEndpoints.checkIn` from `/attendance/check-in` to `/attendance/checkin`.
+   - Corrected `ApiEndpoints.checkOut` from `/attendance/check-out` to `/attendance/checkout`.
+   - Verified backend routes: `modules/attendance/routes.js` only exposes `POST /checkin`,
+     `POST /checkout`, and `GET /`. `/attendance/today` and `/attendance/department` do NOT
+     exist on the backend (see the open bug below - this was a pre-existing issue, unrelated
+     to this task, discovered as a side effect of verifying the checkin/checkout paths).
+2. **Dependencies & Permissions:** Added `geolocator: ^14.0.2`; `ACCESS_FINE_LOCATION` /
+   `ACCESS_COARSE_LOCATION` in `AndroidManifest.xml`; `NSLocationWhenInUseUsageDescription`
+   in `Info.plist`.
+3. **Provider Extension (`employee_home_provider.dart`):** `checkIn`/`checkOut` now accept
+   `latitude`, `longitude`, `accuracy_m`, `is_mock_location` (always sent as an explicit
+   boolean, defaulted to `false`, never omitted). Unpacks `qr_session_id`/`code_value`/
+   `signature` from the scanned QR JSON. Retains `_lastStatusCode`/`_lastErrorData` for
+   error-mapping in the UI.
+4. **Scanner Screen (`scanner_screen.dart`):** Requests foreground location permission on
+   entry; fetches a fresh high-accuracy fix immediately before submission (never cached);
+   reads `position.isMocked`; maps `403 OUTSIDE_GEOFENCE` (shows distance vs. radius),
+   `403 MOCK_LOCATION`, `422`, `400 LOCATION_REQUIRED`, and `400
+   MOCK_LOCATION_FLAG_REQUIRED` (logged as a client bug, auto-retries once) to in-screen
+   banners. No geofence pass/fail logic runs on the device.
+
+### ✅ Resolved bug: `/attendance/today` & `/attendance/department` endpoints fixed (2026-09-29)
+The non-existent `/attendance/today` and `/attendance/department` endpoints in `lib/core/api_endpoints.dart`
+were replaced with the base `ApiEndpoints.attendance = '/attendance'`.
+- `EmployeeHomeProvider.fetchTodayAttendance()` now invokes `GET /api/attendance?employee_id=<id>&date=YYYY-MM-DD`
+  (extracting `employee_id` from parameter, stored user data, or stored JWT claim).
+- `TeamAttendanceProvider.fetchTeamAttendance()` now invokes `GET /api/attendance?date=YYYY-MM-DD` using
+  the selected calendar date.
+- `AttendanceModel` and `TeamAttendanceModel` were updated to support all backend fields including
+  `verification_method` and `employee_email`.
+- Verified live against backend `getAttendanceRecords`: returns `200 OK` with JSON array of matching records.
+
+### Manual test checklist (from the implementing agent, not yet independently verified)
+Successful check-in with location; permission denied; permission permanently denied; GPS
+disabled; mock location flagged (log mode succeeds + alert, enforce mode 403); outside-radius
+in enforce mode (403, distance/radius shown, no attendance record written). Scenario 6
+requires the backend's `GEOFENCE_MODE` to actually be set to `enforce` to observe the
+rejection - it defaults to `log`.

@@ -7,6 +7,7 @@ class AttendanceModel {
   final String? checkOutTime;
   final double? workingHours;
   final String status; // on-time, late, early-leave, on-leave, incomplete
+  final String? verificationMethod; // qr_only, qr_geo, qr_geo_face
 
   AttendanceModel({
     this.attendanceId,
@@ -16,6 +17,7 @@ class AttendanceModel {
     this.checkOutTime,
     this.workingHours,
     this.status = 'not_checked_in',
+    this.verificationMethod,
   });
 
   factory AttendanceModel.fromJson(Map<String, dynamic> json) {
@@ -30,6 +32,7 @@ class AttendanceModel {
           ? double.tryParse(json['working_hours'].toString())
           : null,
       status: (json['status'] ?? 'not_checked_in').toString(),
+      verificationMethod: json['verification_method']?.toString(),
     );
   }
 

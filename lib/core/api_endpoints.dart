@@ -10,9 +10,10 @@ class ApiEndpoints {
   static const String totpVerify = '/auth/totp/verify';
 
   // ── Attendance ────────────────────────────────────────
-  static const String attendanceToday = '/attendance/today';
-  static const String checkIn = '/attendance/check-in';
-  static const String checkOut = '/attendance/check-out';
+  /// Query attendance records: GET /attendance?employee_id=...&date=... or ?date=...
+  static const String attendance = '/attendance';
+  static const String checkIn = '/attendance/checkin';
+  static const String checkOut = '/attendance/checkout';
 
   // ── Leave ─────────────────────────────────────────────
   static const String leaveRequests = '/leave';
@@ -22,7 +23,6 @@ class ApiEndpoints {
 
   // ── Dashboard / Manager ───────────────────────────────
   static const String dashboardSummary = '/dashboard/summary';
-  static const String teamAttendance = '/attendance/department';
 
   // ── Profile ───────────────────────────────────────────
   static const String profile = '/employees/me';

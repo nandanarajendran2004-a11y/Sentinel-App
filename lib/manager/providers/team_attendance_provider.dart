@@ -18,7 +18,7 @@ class TeamAttendanceProvider extends ChangeNotifier {
   String? get error => _error;
   DateTime get selectedDate => _selectedDate;
 
-  /// Fetch department attendance for a given date.
+  /// Fetch department attendance for a given date via GET /api/attendance?date=...
   Future<void> fetchTeamAttendance({DateTime? date}) async {
     if (date != null) _selectedDate = date;
     _isLoading = true;
@@ -29,7 +29,7 @@ class TeamAttendanceProvider extends ChangeNotifier {
       final dateStr =
           '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
       final response = await _api.dio.get(
-        ApiEndpoints.teamAttendance,
+        ApiEndpoints.attendance,
         queryParameters: {'date': dateStr},
       );
 
