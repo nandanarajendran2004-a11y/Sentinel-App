@@ -600,3 +600,16 @@ disabled; mock location flagged (log mode succeeds + alert, enforce mode 403); o
 in enforce mode (403, distance/radius shown, no attendance record written). Scenario 6
 requires the backend's `GEOFENCE_MODE` to actually be set to `enforce` to observe the
 rejection - it defaults to `log`.
+
+## 19. Mobile Networking, Tunneling & Employee Attendance RBAC Fix (added 2026-09-30)
+
+**Status: COMPLETED & PUSHED TO MAIN** across both `Sentinel-App` and `Sentinel-Attendance`.
+
+### 1. Backend Fixes (`Sentinel-Attendance`):
+- **QR Session Department Validation**: Updated `modules/qr/service.js` so that `generateQRSession` and `getOrCreateCurrentSession` accept and persist `department_id`, resolving schema validation failures on rotating QR requests.
+- **Employee Attendance Query RBAC**: Fixed `modules/attendance/controller.js` `getAttendanceRecords`. Previously, only `manager` and `admin` roles were allowed, throwing `403 Access denied` when employees opened the app. Added `role === 'employee'` branch that scopes queries strictly to the requesting employee's ID (`req.user.employee_id`).
+
+### 2. Mobile Client Fixes (`Sentinel-App`):
+- **Android Permissions & Cleartext Traffic**: Added `<uses-permission android:name="android.permission.INTERNET" />` and `android:usesCleartextTraffic="true"` to `AndroidManifest.xml` to allow outbound HTTP/HTTPS calls on Android 9+.
+- **Network Logging Interceptor**: Added `LogInterceptor` to `ApiClient` for transparent debugging of API requests/responses in development.
+- **Ngrok Tunnel Support**: Added `ngrok-skip-browser-warning: true` header to `ApiClient` to bypass ngrok's interstitial warning. Set `AppConstants.apiBaseUrl` default to `https://padded-conceded-slighted.ngrok-free.dev/api` to eliminate the need for manual IP reconfiguration across different Wi-Fi networks.
