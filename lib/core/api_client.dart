@@ -27,7 +27,19 @@ class ApiClient {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
+      ),
+    );
+
+    dio.interceptors.add(
+      LogInterceptor(
+        request: true,
+        requestHeader: false,
+        requestBody: true,
+        responseBody: true,
+        error: true,
+        logPrint: (obj) => debugPrint('[API] $obj'),
       ),
     );
 
