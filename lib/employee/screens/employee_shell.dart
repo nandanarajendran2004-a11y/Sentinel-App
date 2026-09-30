@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../shared_widgets/sentinel_app_bar.dart';
 import '../../shared_widgets/profile_screen.dart';
+import '../providers/employee_home_provider.dart';
 import 'employee_home_screen.dart';
 import 'scanner_screen.dart';
 import 'leave_list_screen.dart';
@@ -18,13 +20,6 @@ class EmployeeShell extends StatefulWidget {
 class _EmployeeShellState extends State<EmployeeShell> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
-    EmployeeHomeScreen(),
-    ScannerScreen(),
-    LeaveListScreen(),
-    ProfileScreen(),
-  ];
-
   final List<String> _titles = const [
     'Home',
     'Scanner',
@@ -32,13 +27,33 @@ class _EmployeeShellState extends State<EmployeeShell> {
     'Profile',
   ];
 
+  void _navigateToHome() {
+    setState(() => _currentIndex = 0);
+    // Refresh today's attendance data to ensure home screen displays the latest status
+    context.read<EmployeeHomeProvider>().fetchTodayAttendance();
+  }
+
+  void _navigateToScanner() {
+    setState(() => _currentIndex = 1);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screens = [
+      EmployeeHomeScreen(onGoToScanner: _navigateToScanner),
+      ScannerScreen(
+        isActive: _currentIndex == 1,
+        onNavigateToHome: _navigateToHome,
+      ),
+      const LeaveListScreen(),
+      const ProfileScreen(),
+    ];
+
     return Scaffold(
       appBar: SentinelAppBar(title: _titles[_currentIndex]),
       body: IndexedStack(
         index: _currentIndex,
-        children: _screens,
+        children: screens,
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(

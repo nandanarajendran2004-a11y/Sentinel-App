@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import '../../core/constants.dart';
 import '../../core/theme.dart';
 import '../providers/employee_home_provider.dart';
@@ -11,18 +14,39 @@ import '../providers/employee_home_provider.dart';
 ///
 /// Opens the camera, scans the kiosk's rotating QR code, captures
 /// a fresh high-accuracy GPS fix, and submits it to the backend.
+///
+/// Features double-scan lockouts, animated success confirmation,
+/// and automatic routing back to the home view.
 class ScannerScreen extends StatefulWidget {
-  const ScannerScreen({super.key});
+  final bool isActive;
+  final VoidCallback? onNavigateToHome;
+
+  const ScannerScreen({
+    super.key,
+    this.isActive = true,
+    this.onNavigateToHome,
+  });
 
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
 }
 
-class _ScannerScreenState extends State<ScannerScreen> {
+class _ScannerScreenState extends State<ScannerScreen>
+    with SingleTickerProviderStateMixin {
   MobileScannerController? _scannerController;
   bool _isProcessing = false;
+  bool _isSuccess = false;
   String? _resultMessage;
   bool? _resultSuccess;
+
+  String? _successType;
+  String? _successTime;
+  DateTime? _lastActionTime;
+
+  late AnimationController _successAnimController;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _glowAnimation;
+  late Animation<double> _progressAnimation;
 
   @override
   void initState() {
@@ -31,11 +55,96 @@ class _ScannerScreenState extends State<ScannerScreen> {
       detectionSpeed: DetectionSpeed.normal,
       facing: CameraFacing.back,
     );
+
+    _initAnimations();
     _checkInitialLocationPermission();
+  }
+
+  void _initAnimations() {
+    _successAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2400),
+    );
+
+    _scaleAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.15)
+            .chain(CurveTween(curve: Curves.easeOutBack)),
+        weight: 35,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.15, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 15,
+      ),
+      TweenSequenceItem(
+        tween: ConstantTween<double>(1.0),
+        weight: 50,
+      ),
+    ]).animate(_successAnimController);
+
+    _glowAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.0, end: 1.0)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 30,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.0, end: 0.45)
+            .chain(CurveTween(curve: Curves.easeInOut)),
+        weight: 70,
+      ),
+    ]).animate(_successAnimController);
+
+    _progressAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _successAnimController,
+        curve: const Interval(0.2, 1.0, curve: Curves.linear),
+      ),
+    );
+
+    _successAnimController.addStatusListener((status) {
+      if (status == AnimationStatus.completed && mounted && _isSuccess) {
+        _navigateToHome();
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant ScannerScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive != oldWidget.isActive) {
+      if (widget.isActive) {
+        _resetScannerForNewScan();
+      } else {
+        _pauseScanner();
+      }
+    }
+  }
+
+  void _pauseScanner() {
+    _successAnimController.reset();
+    _scannerController?.stop();
+  }
+
+  void _resetScannerForNewScan() {
+    _successAnimController.reset();
+    if (mounted) {
+      setState(() {
+        _isProcessing = false;
+        _isSuccess = false;
+        _resultMessage = null;
+        _resultSuccess = null;
+        _successType = null;
+        _successTime = null;
+      });
+    }
+    _scannerController?.start();
   }
 
   @override
   void dispose() {
+    _successAnimController.dispose();
     _scannerController?.dispose();
     super.dispose();
   }
@@ -118,15 +227,20 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   Future<void> _onDetect(BarcodeCapture capture) async {
-    if (_isProcessing) return;
+    // Strict guard against concurrent execution or double-scanning
+    if (!widget.isActive || _isProcessing || _isSuccess) return;
+
     final barcode = capture.barcodes.firstOrNull;
     if (barcode == null || barcode.rawValue == null) return;
-
-    setState(() => _isProcessing = true);
 
     final qrCode = barcode.rawValue!;
     final provider = context.read<EmployeeHomeProvider>();
     final att = provider.attendance;
+
+    // Immediately stop camera scan feed to prevent rapid double-scanning frames
+    setState(() => _isProcessing = true);
+    await _scannerController?.stop();
+    if (!mounted) return;
 
     if (att != null && att.isCheckedOut) {
       _showResult(
@@ -136,14 +250,27 @@ class _ScannerScreenState extends State<ScannerScreen> {
       return;
     }
 
+    final bool isCheckIn = (att == null || att.isNotCheckedIn);
+
+    // Cooldown guard: prevent accidental check-out immediately after check-in
+    if (!isCheckIn && _lastActionTime != null) {
+      final elapsed = DateTime.now().difference(_lastActionTime!).inSeconds;
+      if (elapsed < 30) {
+        _showResult(
+          message:
+              'Check-in was just recorded. Please wait ${30 - elapsed}s before checking out.',
+          success: false,
+        );
+        return;
+      }
+    }
+
     // Acquire fresh high-accuracy position before submitting
     final position = await _determinePosition();
     if (position == null) {
       // Error banner already triggered by _determinePosition
       return;
     }
-
-    final bool isCheckIn = (att == null || att.isNotCheckedIn);
 
     bool success = await _executeAttendanceCall(
       provider: provider,
@@ -185,18 +312,23 @@ class _ScannerScreenState extends State<ScannerScreen> {
     if (!mounted) return;
 
     if (success) {
+      // Haptic confirmation
+      HapticFeedback.heavyImpact();
+
       final newAtt = provider.attendance;
-      if (newAtt?.isCheckedOut == true || !isCheckIn) {
-        _showResult(
-          message: 'Check-out successful!',
-          success: true,
-        );
-      } else {
-        _showResult(
-          message: 'Check-in successful!',
-          success: true,
-        );
-      }
+      final bool wasCheckOut = (newAtt?.isCheckedOut == true || !isCheckIn);
+      final formattedTime = DateFormat('hh:mm a').format(DateTime.now());
+
+      setState(() {
+        _isSuccess = true;
+        _isProcessing = false;
+        _successType = wasCheckOut ? 'Check-Out' : 'Check-In';
+        _successTime = formattedTime;
+        _lastActionTime = DateTime.now();
+      });
+
+      // Launch rich success animation and countdown
+      _successAnimController.forward(from: 0.0);
     } else {
       _showResult(
         message: _mapErrorMessage(provider),
@@ -276,33 +408,60 @@ class _ScannerScreenState extends State<ScannerScreen> {
       _resultSuccess = success;
     });
 
+    // For failures, allow user to read error and restart scanner after 3s delay
     Future.delayed(const Duration(seconds: 3), () {
-      if (mounted) {
+      if (mounted && widget.isActive && !_isSuccess) {
         setState(() {
           _isProcessing = false;
           _resultMessage = null;
           _resultSuccess = null;
         });
+        _scannerController?.start();
       }
     });
+  }
+
+  void _navigateToHome() {
+    if (!mounted) return;
+    _pauseScanner();
+
+    if (widget.onNavigateToHome != null) {
+      widget.onNavigateToHome!();
+    } else if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        // Camera preview
-        if (_scannerController != null)
+        // Camera preview (only mounted when active and not in success state)
+        if (_scannerController != null && widget.isActive)
           MobileScanner(
             controller: _scannerController!,
             onDetect: _onDetect,
+          )
+        else
+          Container(
+            color: SentinelTheme.backgroundDark,
+            child: const Center(
+              child: Icon(
+                Icons.qr_code_scanner_rounded,
+                size: 64,
+                color: SentinelTheme.textMuted,
+              ),
+            ),
           ),
 
-        // Overlay
-        _buildOverlay(),
+        // Default viewfinder overlay
+        if (!_isSuccess) _buildOverlay(),
 
-        // Result banner
-        if (_resultMessage != null) _buildResultBanner(),
+        // Error / status banner (when active and not in success view)
+        if (_resultMessage != null && !_isSuccess) _buildResultBanner(),
+
+        // Success Confirmation and Auto-Route Animation View
+        if (_isSuccess) _buildSuccessView(),
       ],
     );
   }
@@ -320,7 +479,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 32),
                 child: Text(
                   _isProcessing
-                      ? 'Processing...'
+                      ? 'Verifying location & QR session...'
                       : 'Point your camera at the\nkiosk QR code',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.inter(
@@ -342,7 +501,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
             children: [
               Expanded(
                 child: Container(
-                    color: Colors.black.withValues(alpha: 0.6)),
+                  color: Colors.black.withValues(alpha: 0.6),
+                ),
               ),
               SizedBox(
                 width: 260,
@@ -358,7 +518,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
               ),
               Expanded(
                 child: Container(
-                    color: Colors.black.withValues(alpha: 0.6)),
+                  color: Colors.black.withValues(alpha: 0.6),
+                ),
               ),
             ],
           ),
@@ -383,7 +544,9 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   }
                   return Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 10),
+                      horizontal: 20,
+                      vertical: 10,
+                    ),
                     decoration: BoxDecoration(
                       color: SentinelTheme.surfaceLight.withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(20),
@@ -419,8 +582,8 @@ class _ScannerScreenState extends State<ScannerScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           decoration: BoxDecoration(
             color: isSuccess
-                ? SentinelTheme.accentGreen.withValues(alpha: 0.9)
-                : SentinelTheme.accentRed.withValues(alpha: 0.9),
+                ? SentinelTheme.accentGreen.withValues(alpha: 0.95)
+                : SentinelTheme.accentRed.withValues(alpha: 0.95),
             borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
@@ -447,7 +610,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   _resultMessage!,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 15,
+                    fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -456,6 +619,294 @@ class _ScannerScreenState extends State<ScannerScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// Full-screen animated success view with elastic checkmark, details card,
+  /// progress bar, and instant home redirection.
+  Widget _buildSuccessView() {
+    final isCheckIn = _successType == 'Check-In';
+    final accentColor =
+        isCheckIn ? SentinelTheme.accentGreen : SentinelTheme.primaryCyan;
+
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      decoration: BoxDecoration(
+        color: SentinelTheme.backgroundDark.withValues(alpha: 0.96),
+      ),
+      child: SafeArea(
+        child: AnimatedBuilder(
+          animation: _successAnimController,
+          builder: (context, child) {
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Spacer(flex: 2),
+
+                  // Animated Checkmark Icon with Glowing Rings
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Pulsing outer glow ring
+                      Container(
+                        width: 140,
+                        height: 140,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: accentColor.withValues(
+                            alpha: 0.12 * _glowAnimation.value,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: accentColor.withValues(
+                                alpha: 0.25 * _glowAnimation.value,
+                              ),
+                              blurRadius: 40,
+                              spreadRadius: 10,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Middle border ring
+                      Container(
+                        width: 110,
+                        height: 110,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: accentColor.withValues(alpha: 0.35),
+                            width: 2.5,
+                          ),
+                          color: SentinelTheme.surfaceLight,
+                        ),
+                      ),
+
+                      // Bouncing Checkmark
+                      Transform.scale(
+                        scale: _scaleAnimation.value,
+                        child: Container(
+                          width: 86,
+                          height: 86,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              colors: [
+                                accentColor,
+                                accentColor.withValues(alpha: 0.8),
+                              ],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.check_rounded,
+                              color: SentinelTheme.backgroundDark,
+                              size: 52,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Title
+                  Text(
+                    '$_successType Successful!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  // Subtitle
+                  Text(
+                    isCheckIn
+                        ? 'Your check-in has been verified and recorded.'
+                        : 'Your check-out has been verified. See you tomorrow!',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      color: SentinelTheme.textSecondary,
+                      height: 1.4,
+                    ),
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Summary Card
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: SentinelTheme.cardSurface,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.08),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        _buildSummaryRow(
+                          icon: Icons.access_time_filled_rounded,
+                          iconColor: SentinelTheme.primaryCyan,
+                          label: 'Time Recorded',
+                          value: _successTime ?? '--:--',
+                        ),
+                        const Divider(
+                          color: SentinelTheme.dividerColor,
+                          height: 24,
+                        ),
+                        _buildSummaryRow(
+                          icon: Icons.satellite_alt_rounded,
+                          iconColor: SentinelTheme.accentGreen,
+                          label: 'Location Verification',
+                          value: 'GPS Geofence Verified',
+                        ),
+                        const Divider(
+                          color: SentinelTheme.dividerColor,
+                          height: 24,
+                        ),
+                        _buildSummaryRow(
+                          icon: isCheckIn
+                              ? Icons.login_rounded
+                              : Icons.logout_rounded,
+                          iconColor: accentColor,
+                          label: 'Attendance State',
+                          value: isCheckIn ? 'Checked In' : 'Checked Out',
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const Spacer(flex: 3),
+
+                  // Redirection countdown progress bar
+                  Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Returning to Home...',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: SentinelTheme.textMuted,
+                            ),
+                          ),
+                          Text(
+                            'Auto-redirecting',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: accentColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(
+                          value: _progressAnimation.value,
+                          minHeight: 6,
+                          backgroundColor:
+                              SentinelTheme.surfaceLight.withValues(alpha: 0.8),
+                          valueColor: AlwaysStoppedAnimation<Color>(accentColor),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 18),
+
+                  // "Back to Home Now" Button for instant return
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      onPressed: _navigateToHome,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: SentinelTheme.surfaceElevated,
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                          side: BorderSide(
+                            color: accentColor.withValues(alpha: 0.4),
+                            width: 1.2,
+                          ),
+                        ),
+                      ),
+                      icon: const Icon(Icons.home_rounded, size: 20),
+                      label: Text(
+                        'Back to Home Now',
+                        style: GoogleFonts.inter(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryRow({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: iconColor.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: iconColor, size: 18),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              color: SentinelTheme.textSecondary,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

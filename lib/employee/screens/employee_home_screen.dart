@@ -9,7 +9,9 @@ import '../providers/employee_home_provider.dart';
 /// Employee home screen — shows today's attendance status and a contextual
 /// Check In / Check Out button.
 class EmployeeHomeScreen extends StatefulWidget {
-  const EmployeeHomeScreen({super.key});
+  final VoidCallback? onGoToScanner;
+
+  const EmployeeHomeScreen({super.key, this.onGoToScanner});
 
   @override
   State<EmployeeHomeScreen> createState() => _EmployeeHomeScreenState();
@@ -127,37 +129,51 @@ class _EmployeeHomeScreenState extends State<EmployeeHomeScreen>
 
                 // Action hint
                 if (att == null || att.isNotCheckedIn || att.isCheckedIn)
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: SentinelTheme.primaryCyan.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color:
-                            SentinelTheme.primaryCyan.withValues(alpha: 0.15),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.qr_code_scanner_rounded,
-                          color: SentinelTheme.primaryCyan.withValues(alpha: 0.7),
-                          size: 22,
+                  InkWell(
+                    onTap: widget.onGoToScanner,
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: SentinelTheme.primaryCyan.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color:
+                              SentinelTheme.primaryCyan.withValues(alpha: 0.15),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            att == null || att.isNotCheckedIn
-                                ? 'Go to the Scanner tab to check in by scanning the QR code'
-                                : 'Go to the Scanner tab to check out by scanning the QR code',
-                            style: const TextStyle(
-                              color: SentinelTheme.textSecondary,
-                              fontSize: 13,
-                              height: 1.4,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.qr_code_scanner_rounded,
+                            color:
+                                SentinelTheme.primaryCyan.withValues(alpha: 0.7),
+                            size: 22,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              att == null || att.isNotCheckedIn
+                                  ? 'Go to the Scanner tab to check in by scanning the QR code'
+                                  : 'Go to the Scanner tab to check out by scanning the QR code',
+                              style: const TextStyle(
+                                color: SentinelTheme.textSecondary,
+                                fontSize: 13,
+                                height: 1.4,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                          if (widget.onGoToScanner != null) ...[
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.arrow_forward_ios_rounded,
+                              size: 14,
+                              color: SentinelTheme.primaryCyan
+                                  .withValues(alpha: 0.6),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
               ],
