@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme.dart';
+import '../../shared_widgets/server_config_dialog.dart';
 import '../providers/auth_provider.dart';
 
 /// Login screen — email + password for all roles.
@@ -82,10 +83,24 @@ class _LoginScreenState extends State<LoginScreen>
         _showAdminBlockedDialog();
         break;
       case LoginResult.error:
+        final errorText = auth.error ?? 'Login failed';
+        final isConnectionIssue = errorText.toLowerCase().contains('connect') ||
+            errorText.toLowerCase().contains('timeout') ||
+            errorText.toLowerCase().contains('network') ||
+            errorText.toLowerCase().contains('ngrok') ||
+            errorText.toLowerCase().contains('server');
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(auth.error ?? 'Login failed'),
+            content: Text(errorText),
             backgroundColor: SentinelTheme.accentRed,
+            action: isConnectionIssue
+                ? SnackBarAction(
+                    label: 'Server URL',
+                    textColor: Colors.white,
+                    onPressed: () => ServerConfigDialog.show(context),
+                  )
+                : null,
           ),
         );
         break;
@@ -128,19 +143,30 @@ class _LoginScreenState extends State<LoginScreen>
           gradient: SentinelTheme.backgroundGradient,
         ),
         child: SafeArea(
-          child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 28),
-              child: FadeTransition(
-                opacity: _fadeAnim,
-                child: SlideTransition(
-                  position: _slideAnim,
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Logo / Branding
-                      _buildLogo(),
-                      const SizedBox(height: 48),
+          child: Stack(
+            children: [
+              // Server URL button in top right corner
+              Positioned(
+                top: 12,
+                right: 20,
+                child: _buildServerConfigButton(),
+              ),
+              Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 28),
+                  child: FadeTransition(
+                    opacity: _fadeAnim,
+                    child: SlideTransition(
+                      position: _slideAnim,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Logo / Branding (with Easter egg long press)
+                          GestureDetector(
+                            onLongPress: () => ServerConfigDialog.show(context),
+                            child: _buildLogo(),
+                          ),
+                          const SizedBox(height: 48),
 
                       // Login form card
                       Container(
@@ -259,6 +285,63 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
               ),
             ),
+          ),
+        ],
+      ),
+    ),
+  ),
+);
+  }
+
+  Widget _buildServerConfigButton() {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => ServerConfigDialog.show(context),
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: SentinelTheme.cardSurface.withValues(alpha: 0.85),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.1),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 7,
+                height: 7,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: SentinelTheme.primaryCyan,
+                ),
+              ),
+              const SizedBox(width: 7),
+              const Icon(
+                Icons.dns_rounded,
+                size: 14,
+                color: SentinelTheme.textSecondary,
+              ),
+              const SizedBox(width: 5),
+              const Text(
+                'Server',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: SentinelTheme.textSecondary,
+                ),
+              ),
+            ],
           ),
         ),
       ),

@@ -41,8 +41,24 @@ class SecureStorageService {
     return jsonDecode(data) as Map<String, dynamic>;
   }
 
-  /// Clears all stored data (JWT + user data) — used on logout and 401.
+  // ── Server Base URL ────────────────────────────────────
+
+  Future<void> saveBaseUrl(String url) async {
+    await _storage.write(key: AppConstants.apiBaseUrlKey, value: url);
+  }
+
+  Future<String?> getBaseUrl() async {
+    return _storage.read(key: AppConstants.apiBaseUrlKey);
+  }
+
+  Future<void> deleteBaseUrl() async {
+    await _storage.delete(key: AppConstants.apiBaseUrlKey);
+  }
+
+  /// Clears user session data (JWT + user data) — used on logout and 401.
+  /// Preserves server configuration such as custom API Base URL.
   Future<void> clearAll() async {
-    await _storage.deleteAll();
+    await _storage.delete(key: AppConstants.jwtStorageKey);
+    await _storage.delete(key: AppConstants.userDataKey);
   }
 }

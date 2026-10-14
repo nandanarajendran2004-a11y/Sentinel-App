@@ -5,12 +5,13 @@ class AppConstants {
   /// API base URL — configurable via `--dart-define=API_BASE_URL=...`
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://padded-conceded-slighted.ngrok-free.dev/api',
+    defaultValue: 'https://knowing-obviously-terrapin.ngrok-free.app/api',
   );
 
   /// Secure storage keys
   static const String jwtStorageKey = 'sentinel_jwt';
   static const String userDataKey = 'sentinel_user';
+  static const String apiBaseUrlKey = 'sentinel_api_base_url';
 
   /// Animation durations
   static const Duration fastAnimation = Duration(milliseconds: 200);

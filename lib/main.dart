@@ -16,8 +16,11 @@ import 'manager/providers/team_attendance_provider.dart';
 import 'manager/providers/leave_approval_provider.dart';
 import 'manager/screens/manager_shell.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load custom API base URL if previously saved
+  await ApiClient().init();
 
   // Lock to portrait for mobile
   SystemChrome.setPreferredOrientations([
